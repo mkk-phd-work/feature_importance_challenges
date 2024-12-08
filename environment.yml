@@ -1,0 +1,29 @@
+#conda environment file
+# to create the environment from the file, run:
+# conda env create -f environment.yml
+
+name: feature_importance
+
+# Channels to search for packages.
+channels:
+  - conda-forge
+  - defaults
+
+# List of packages included in environment.
+dependencies:
+  - python=3.9
+  - numpy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - jupyter
+  - ipykernel
+  - pip
+  - pip:
+      - skforecast
+      # - xgboost
+      - lightgbm
+      - shap
+      - timeseries-generator
+      - ucimlrepo
