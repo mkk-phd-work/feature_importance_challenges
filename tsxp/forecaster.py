@@ -25,7 +25,7 @@ def get_default_search_space(trial):
         "n_estimators": trial.suggest_int("n_estimators", 526, 526),
         "max_depth": trial.suggest_int("max_depth", 8, 8),
         "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.01),
-        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 1),
+        # "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 1),
     }
 
 
@@ -114,3 +114,5 @@ class ForecasterMsExog:
         X_test = X.loc[X.index >= split_time]
         y_test = y.loc[y.index >= split_time]
         return (X_train, y_train, X_test, y_test)
+
+

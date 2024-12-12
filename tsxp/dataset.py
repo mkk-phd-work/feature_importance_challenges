@@ -9,7 +9,6 @@ import logging
 def split_long_format(series_dict, split_ts="2016-01-01"):
     series_dict_train = {k: v.loc[:split_ts,] for k, v in series_dict.items()}
     series_dict_test = {k: v.loc[split_ts:,] for k, v in series_dict.items()}
-    print(series_dict_train)
     return series_dict_train, series_dict_test
 
 
