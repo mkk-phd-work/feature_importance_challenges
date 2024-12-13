@@ -10,6 +10,7 @@ import shap
 from sklearn.inspection import permutation_importance
 
 from lightgbm import LGBMRegressor
+from grouped_permutation_importance import grouped_permutation_importance
 
 
 class ForecasterMsExogFeatureImportance:
@@ -39,9 +40,13 @@ class ForecasterMsExogFeatureImportance:
             # "PFI_R2": self.__calculate_permutation_importance(self.X_train, self.y_train, ["r2"]),
             # "PFI_R2_TEST": self.__calculate_permutation_importance(self.X_test, self.y_test, ["r2"]),
             # "SHAP": self.__calculate_shap_tree_importance(self.X_train, self.y_train),
-            "SHAP_TEST": self.__calculate_shap_tree_importance(
+            "TREE_SHAP_TEST": self.__calculate_shap_tree_importance(
                 self.X_test, self.y_test
             ),
+            "TREE_SHAP_TRAIN": self.__calculate_shap_tree_importance(
+                self.X_train, self.y_train
+            ),
+            "TREE_PATH_SHAP": self.__calculate_shap_tree_importance(self.X_train, self.y_train, perturbation="tree_path_dependent" ), # tree_path_dependent_shap_values
             # "TREE_GAIN": self.__calculate_gain_feature_importance(),
         }
         df = pd.concat(importances, axis=1)
@@ -75,18 +80,20 @@ class ForecasterMsExogFeatureImportance:
         feature_importances = pd.DataFrame(importance_metrics)
         return feature_importances
 
-    def __calculate_shap_tree_importance(self, data_x, data_y):
+    def __calculate_shap_tree_importance(self, data_x, data_y,perturbation="interventional"):
+        x  = data_x if perturbation != "tree_path_dependent" else None  #  perturbation="tree_path_dependent" or  interventional(if )
         explainer = shap.TreeExplainer(
             self.model,
+            data = x,
             # random_state=42
-        )  # , data_x, random_state=42)
+        )  
         shap_values = explainer.shap_values(data_x, data_y)
-        # print(shap_values)
         feature_importances = pd.DataFrame(shap_values, columns=data_x.columns)
         global_feature_importance = (
             feature_importances.abs().mean().sort_values(ascending=False)
         )
         return pd.DataFrame(global_feature_importance)
+
 
     def __calculate_rank(self):
         ir_order = self.feature_importance.copy()
@@ -116,9 +123,8 @@ class ForecasterMsExogFeatureImportance:
     ####################
 
     def calculate_individual_shap_series(self, x, y):
-        explainer = shap.TreeExplainer( # TODO: Check difference based on the feature_perturbation parameter
-            self.model,  # random_state=42
-            x
+        explainer = shap.TreeExplainer(  # TODO: Check difference based on the feature_perturbation parameter
+            self.model, x  # random_state=42
         )  # self.trainx,  #https://github.com/shap/shap/issues/1366#issuecomment-756863719
         shap_values = explainer(x, y)
         return shap_values
@@ -200,8 +206,49 @@ class ForecasterMsExogFeatureImportance:
             subplots=True,
             # color= cm.viridis(np.linspace(0, 1, len(plt_df))),
             figsize=(20, 30),
-            layout=(np.ceil(len(columns) / 2), 2),
+            layout=(int(np.ceil(len(columns) / 2).astype(int)) , 2),
             legend=True,
             sharey=True,
             sharex=False,
         )
+
+    ################ Grouped permutation importance
+
+    def plot_grouped_importance(self, X, y):
+
+
+        r = grouped_permutation_importance(
+            self.model,
+            X=X,
+            y=y,
+            groups=self.data.series_dict_train,
+            n_repeats=100,
+            random_state=42,
+            n_jobs=-1,
+        )
+        sorted_idx = r.importances_mean.argsort()[::-1]
+        box = ax[0].boxplot(r.importances[sorted_idx].T,
+                    patch_artist=True,
+                    vert=True, showfliers=False, notch=True,
+                    labels=np.array(columns)[sorted_idx])
+        for patch in box["boxes"]:
+            patch.set_facecolor("blue")
+            patch.set_alpha(.5)
+        
+### SHAP on FUll dataset vs on the series
+
+    def series_shap(self,series_id):
+        mapping = self.forecaster.forecaster.encoding_mapping_
+        id = mapping[series_id]
+        print(f"Series id: {series_id} - {id}")
+        x_series = self.X_train[self.X_train["_level_skforecast"] == id ]
+        y_series = self.y_train[self.X_train["_level_skforecast"] == id ]        
+        shap_values = self.calculate_individual_shap_series(x_series, y_series)
+        shap.plots.bar(
+            shap_values.abs.mean(0),
+            show=False,
+            # max_display=max_display,
+        )
+        plt.show()
+        shap.summary_plot(shap_values, x_series, plot_type="violin")
+

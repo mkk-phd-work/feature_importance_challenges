@@ -27,3 +27,5 @@ dependencies:
       - shap
       - timeseries-generator
       - ucimlrepo
+      - delayed
+      # - pip install git+https://github.com/lucasplagwitz/grouped_permutation_importance
