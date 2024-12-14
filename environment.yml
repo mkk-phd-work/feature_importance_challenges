@@ -28,4 +28,5 @@ dependencies:
       - timeseries-generator
       - ucimlrepo
       - delayed
+      - pyarrow
       # - pip install git+https://github.com/lucasplagwitz/grouped_permutation_importance

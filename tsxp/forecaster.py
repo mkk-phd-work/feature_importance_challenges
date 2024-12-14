@@ -89,19 +89,26 @@ class ForecasterMsExog:
     def plot_forecast(self):
         forecast = self.forecaster.predict(
             # series_id=series_id,
-            steps=365,
+            steps=self.data.test_size,
             exog=self.data.exog_dict_test,
         )
-        # plot original series
-        # self.data.plot_series()
-        fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-        # for k, v in self.data.series_dict_train.items():
-        #     v.plot(title=k, style="-", ax=ax)
+        fig, ax = plt.subplots(1, 2, figsize=(15, 5))
         for k, v in self.data.series_dict_test.items():
-            v.plot(style="-", ax=ax, legend=True)
-            # label=k+"-test")
-        # plot forecast
-        forecast.plot(ax=ax, style="--", label="forecast", legend=True)
+            v.plot(style="-", ax=ax[0], legend=True, label=k + "-test", linewidth=0.8)
+            forecast[k].plot(ax=ax[0], style="--", legend=True, linewidth=0.8, label=k + "-forecast")
+        # calculate and plot residuals
+        fig, bx = plt.subplots(1, 3, figsize=(15, 5))
+        c= 0
+        for k, v in self.data.series_dict_test.items():
+            residuals = forecast[k].subtract(v)
+            residuals.plot(ax=ax[1], style="-", legend=True, label=k+"-residuals", linewidth=0.8)
+            residuals.plot(type="hist", bins=10,  legend=True, label=k+"-hist", ax=bx[c])
+            c = c + 1
+
+        # print(forecast)
+        # print(self.data.series_dict_test)
+        # residuals.plot(ax=ax, style="-", legend=True, label="residuals", linewidth=0.8)
+
 
     def create_train_xy(self):
         (X, y) = self.forecaster.create_train_X_y(

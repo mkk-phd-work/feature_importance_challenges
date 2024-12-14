@@ -8,7 +8,8 @@ import logging
 
 def split_long_format(series_dict, split_ts="2016-01-01"):
     series_dict_train = {k: v.loc[:split_ts,] for k, v in series_dict.items()}
-    series_dict_test = {k: v.loc[split_ts:,] for k, v in series_dict.items()}
+    split_start = series_dict_train[list(series_dict_train.keys())[0]].index.max() + pd.Timedelta(days=1)
+    series_dict_test = {k: v.loc[split_start:,] for k, v in series_dict.items()}
     return series_dict_train, series_dict_test
 
 
@@ -86,9 +87,11 @@ class ForecasterMsDataset(Dataset):
         )
 
     def plot_series(self):
-        # create a single plot
         fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-        for k, v in self.series_dict_train.items():
-            v.plot(title=k, style="-", ax=ax)
-        for k, v in self.series_dict_test.items():
-            v.plot(title=k, style="--", ax=ax)
+        colors = plt.cm.get_cmap('tab10', len(self.series_dict_train)+4)
+        for idx, (k, v) in enumerate(self.series_dict_train.items()):
+            v.plot( style="-", ax=ax, color=colors(idx), legend=True, label=k+"-train", linewidth=0.5)
+            self.series_dict_test[k].plot( style="-.", ax=ax, color=colors(idx), legend=True, label=k+"-test", linewidth=0.5)
+        ax.legend(loc='lower right', bbox_to_anchor=(1, 1),ncol=6)
+        plt.show()
+   

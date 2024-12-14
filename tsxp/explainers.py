@@ -37,8 +37,8 @@ class ForecasterMsExogFeatureImportance:
             "PFI_MSE_TEST": self.__calculate_permutation_importance(
                 self.X_test, self.y_test
             ),
-            # "PFI_R2": self.__calculate_permutation_importance(self.X_train, self.y_train, ["r2"]),
-            # "PFI_R2_TEST": self.__calculate_permutation_importance(self.X_test, self.y_test, ["r2"]),
+            "PFI_R2": self.__calculate_permutation_importance(self.X_train, self.y_train, ["r2"]),
+            "PFI_R2_TEST": self.__calculate_permutation_importance(self.X_test, self.y_test, ["r2"]),
             # "SHAP": self.__calculate_shap_tree_importance(self.X_train, self.y_train),
             "TREE_SHAP_TEST": self.__calculate_shap_tree_importance(
                 self.X_test, self.y_test
@@ -47,8 +47,11 @@ class ForecasterMsExogFeatureImportance:
                 self.X_train, self.y_train
             ),
             "TREE_PATH_SHAP": self.__calculate_shap_tree_importance(self.X_train, self.y_train, perturbation="tree_path_dependent" ), # tree_path_dependent_shap_values
+            "KERNEL_SHAP": self.__calculate_shap_kernel_importance(self.X_train, self.y_train ), 
             # "TREE_GAIN": self.__calculate_gain_feature_importance(),
         }
+        
+
         df = pd.concat(importances, axis=1)
         df.columns = importances.keys()
         return df
@@ -93,6 +96,16 @@ class ForecasterMsExogFeatureImportance:
             feature_importances.abs().mean().sort_values(ascending=False)
         )
         return pd.DataFrame(global_feature_importance)
+
+    def __calculate_shap_kernel_importance(self, data_x, data_y):
+        explainer = shap.KernelExplainer(self.model.predict, data_x)
+        shap_values = explainer.shap_values(data_x)
+        feature_importances = pd.DataFrame(shap_values, columns=data_x.columns)
+        global_feature_importance = (
+            feature_importances.abs().mean().sort_values(ascending=False)
+        )
+        return pd.DataFrame(global_feature_importance)
+
 
 
     def __calculate_rank(self):
@@ -252,3 +265,11 @@ class ForecasterMsExogFeatureImportance:
         plt.show()
         shap.summary_plot(shap_values, x_series, plot_type="violin")
 
+### Scale the shap values
+    def scaled_shap(self):
+        scalers = self.forecaster.forecaster.transformer_series_
+        scalers_exog = self.forecaster.forecaster.transformer_exog
+        shap_values = self.calculate_individual_shap_series(self.X_test, self.y_test)
+        
+        return shap_values
+ 
