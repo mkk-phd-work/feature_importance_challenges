@@ -1,4 +1,5 @@
 from matplotlib import pyplot as plt
+from matplotlib.figure import Figure, SubFigure
 from tsxp.forecaster import ForecasterMsExog
 
 ##
@@ -21,9 +22,7 @@ class ForecasterMsExogFeatureImportance:
 
         self.model = forecaster.forecaster.regressor  # trained model
         self.data = forecaster.data  # data object  containing the series and exog data
-        (self.X_train, self.y_train, self.X_test, self.y_test) = (
-            self.forecaster.create_train_xy()
-        )
+        (self.X_train, self.y_train, self.X_test, self.y_test) = self.forecaster.create_train_xy()
 
         # TODO: Implement the feature importance calculation
         self.feature_importance = self.calculate_feature_importance()
@@ -32,33 +31,38 @@ class ForecasterMsExogFeatureImportance:
         self.hierarchies = self.create_hierarchy()
 
     def calculate_feature_importance(self) -> pd.DataFrame:
-        importances = {
-            # "PFI_MSE": self.__calculate_permutation_importance(self.X_train, self.y_train),
-            "PFI_MSE_TEST": self.__calculate_permutation_importance(
-                self.X_test, self.y_test
-            ),
+        importances_pfi = {
+            "PFI_MSE": self.__calculate_permutation_importance(self.X_train, self.y_train),
+            "PFI_MSE_TEST": self.__calculate_permutation_importance(self.X_test, self.y_test),
             "PFI_R2": self.__calculate_permutation_importance(self.X_train, self.y_train, ["r2"]),
             "PFI_R2_TEST": self.__calculate_permutation_importance(self.X_test, self.y_test, ["r2"]),
-            # "SHAP": self.__calculate_shap_tree_importance(self.X_train, self.y_train),
-            "TREE_SHAP_TEST": self.__calculate_shap_tree_importance(
-                self.X_test, self.y_test
-            ),
-            "TREE_SHAP_TRAIN": self.__calculate_shap_tree_importance(
-                self.X_train, self.y_train
-            ),
-            "TREE_PATH_SHAP": self.__calculate_shap_tree_importance(self.X_train, self.y_train, perturbation="tree_path_dependent" ), # tree_path_dependent_shap_values
-            "KERNEL_SHAP": self.__calculate_shap_kernel_importance(self.X_train, self.y_train ), 
-            # "TREE_GAIN": self.__calculate_gain_feature_importance(),
+            "TREE_GAIN": self.__calculate_gain_feature_importance(),
+            "TREE_SPLIT": self.__calculate_split_feature_importance(),
         }
         
+
+        if isinstance(self.model, LGBMRegressor):
+            shap_fun = self.__calculate_fast_tree_shap_importance
+        else:
+            shap_fun = self.__calculate_fast_tree_shap_importance
+
+        importances_shap = {
+            "TREE_SHAP_TRAIN": shap_fun(self.X_train, self.y_train),
+            # "FAST_TREE_SHAP": self.__calculate_fast_tree_shap_importance(self.X_test, self.y_test),
+            "TREE_SHAP_TEST": shap_fun(self.X_test, self.y_test),
+            "TREE_PATH_SHAP": shap_fun(
+                self.X_train, self.y_train, perturbation="tree_path_dependent"
+            ),  # tree_path_dependent_shap_values
+            # "KERNEL_SHAP": self.__calculate_shap_kernel_importance(self.X_test, self.y_test),  # TODO: Test if works
+        }
+
+        importances = {**importances_pfi, **importances_shap}
 
         df = pd.concat(importances, axis=1)
         df.columns = importances.keys()
         return df
 
-    def __calculate_permutation_importance(
-        self, data_x, data_y, scoring=["neg_mean_squared_error"]
-    ):
+    def __calculate_permutation_importance(self, data_x, data_y, scoring=["neg_mean_squared_error"]):
         results = permutation_importance(
             self.model,
             data_x,
@@ -72,7 +76,6 @@ class ForecasterMsExogFeatureImportance:
         importance_metrics = {}
         feature_names = data_x.columns
         for metric in results:
-            # print(f"{metric}")
             r = results[metric]
             importances_mean = {}
             for i in np.argsort(r.importances_mean)[::-1]:
@@ -83,30 +86,38 @@ class ForecasterMsExogFeatureImportance:
         feature_importances = pd.DataFrame(importance_metrics)
         return feature_importances
 
-    def __calculate_shap_tree_importance(self, data_x, data_y,perturbation="interventional"):
-        x  = data_x if perturbation != "tree_path_dependent" else None  #  perturbation="tree_path_dependent" or  interventional(if )
+    def __calculate_shap_tree_importance(self, data_x, data_y, perturbation="interventional"):
+        x = (
+            data_x if perturbation != "tree_path_dependent" else None
+        )  #  perturbation="tree_path_dependent" or  interventional(if )
         explainer = shap.TreeExplainer(
             self.model,
-            data = x,
+            data=x,
             # random_state=42
-        )  
-        shap_values = explainer.shap_values(data_x, data_y)
-        feature_importances = pd.DataFrame(shap_values, columns=data_x.columns)
-        global_feature_importance = (
-            feature_importances.abs().mean().sort_values(ascending=False)
         )
+        # shap_values = explainer.shap_values(data_x, data_y)
+        shap_values = explainer.shap_values(data_x, data_y, check_additivity=False)
+        feature_importances = pd.DataFrame(shap_values, columns=data_x.columns)
+        global_feature_importance = feature_importances.abs().mean().sort_values(ascending=False)
+        return pd.DataFrame(global_feature_importance)
+
+    def __calculate_fast_tree_shap_importance(self, data_x, data_y, perturbation="interventional"):
+        import fasttreeshap
+
+        x = data_x if perturbation != "tree_path_dependent" else None
+        explainer = fasttreeshap.TreeExplainer(self.model, data=x,  feature_perturbation=perturbation)#,algorithm="v1",)
+        shap_values_v1 = explainer.shap_values(data_x, data_y, check_additivity=False)
+        # print(shap_values_v1)
+        feature_importances = pd.DataFrame(shap_values_v1, columns=data_x.columns)
+        global_feature_importance = feature_importances.abs().mean().sort_values(ascending=False)
         return pd.DataFrame(global_feature_importance)
 
     def __calculate_shap_kernel_importance(self, data_x, data_y):
-        explainer = shap.KernelExplainer(self.model.predict, data_x)
-        shap_values = explainer.shap_values(data_x)
+        explainer = shap.KernelExplainer(self.model, data_x)
+        shap_values = explainer(data_x)
         feature_importances = pd.DataFrame(shap_values, columns=data_x.columns)
-        global_feature_importance = (
-            feature_importances.abs().mean().sort_values(ascending=False)
-        )
+        global_feature_importance = feature_importances.abs().mean().sort_values(ascending=False)
         return pd.DataFrame(global_feature_importance)
-
-
 
     def __calculate_rank(self):
         ir_order = self.feature_importance.copy()
@@ -130,7 +141,16 @@ class ForecasterMsExogFeatureImportance:
             gain_imp = self.model.feature_importances_
         else:
             gain_imp = self.model.booster_.feature_importance(importance_type="gain")
-        df_imp = pd.DataFrame({"gain": gain_imp}, index=self.trainx.columns)
+        df_imp = pd.DataFrame({"gain": gain_imp}, index=self.X_train.columns)
+        return df_imp
+
+    def __calculate_split_feature_importance(self):  #
+        split_imp = None
+        if not isinstance(self.model, LGBMRegressor):
+            split_imp = None  # self.model.feature_importances_
+        else:
+            split_imp = self.model.booster_.feature_importance(importance_type="split")
+        df_imp = pd.DataFrame({"split": split_imp}, index=self.X_train.columns)
         return df_imp
 
     ####################
@@ -139,24 +159,23 @@ class ForecasterMsExogFeatureImportance:
         explainer = shap.TreeExplainer(  # TODO: Check difference based on the feature_perturbation parameter
             self.model, x  # random_state=42
         )  # self.trainx,  #https://github.com/shap/shap/issues/1366#issuecomment-756863719
-        shap_values = explainer(x, y)
+        shap_values = explainer(x, y, check_additivity=False)
         return shap_values
 
     def plot_importance_for_series(self):
-        shap_values = self.calculate_individual_shap_series(self.X_train, self.y_train)
+        shap_values = self.calculate_individual_shap_series(self.X_test, self.y_train)
         cohorts = [
-            self.hierarchies["series"][shap_values[i, "_level_skforecast"].data]
-            for i in range(len(shap_values))
+            self.hierarchies["series"][shap_values[i, "_level_skforecast"].data] for i in range(len(shap_values))
         ]
         # print(cohorts)
         self.grouped_shap_plot(shap_values, cohorts)
         self.plot_feature_shap(shap_values, cohorts)
 
-    def plot_feature_shap(self, shap_values, cohorts):
-        import matplotlib.pyplot as plt
+    # def plot_feature_shap(self, shap_values, cohorts):
+    #     import matplotlib.pyplot as plt
 
-        shap.plots.bar(shap_values.abs.mean(0), max_display=10)
-        plt.show()
+    #     shap.plots.bar(shap_values.abs.mean(0), max_display=10)
+    #     plt.show()
 
     def create_hierarchy(self):
         def extract_series_id(series_id, index):
@@ -201,34 +220,65 @@ class ForecasterMsExogFeatureImportance:
         plt_df.set_index("feature", inplace=True)
 
         for k, coh_id in enumerate(cohorts):
+            # plt.subplot(1, len(cohorts), k+1 )
             # shap.summary_plot(coh.cohorts[coh_id], max_display=max_display, plot_type="layered_violin", title=coh_id)
-            ax = shap.summary_plot(
+            # sf = fig.add_subfigure()
+            plt.figure(figsize=(10, 8))
+            # shap.summary_plot(
+            shap.plots.violin(
                 # shap.plots.beeswarm(
                 coh.cohorts[coh_id],
                 color_bar_label=coh_id,
                 plot_type="violin",
                 # plot_type="layered_violin",
-                # ax= ax[floor(k/ 2), k % 2],
-                # show=False,
+                # ax= axs[k],
+                show=False,
                 title=coh_id,
             )
-        plt_df = plt_df.T  # .reset_index()
-        plt.tight_layout()
-        plt_df.plot(
-            kind="barh",
-            subplots=True,
-            # color= cm.viridis(np.linspace(0, 1, len(plt_df))),
-            figsize=(20, 30),
-            layout=(int(np.ceil(len(columns) / 2).astype(int)) , 2),
-            legend=True,
-            sharey=True,
-            sharex=False,
-        )
+            fig = plt.gcf()
+            fig.set_size_inches(5, 4)
+            plt.show()
+
+        ################ Layout ovelaps the plots
+        # fig = plt.figure(figsize=(10*len(cohorts),10), layout='constrained')
+        # num_cohorts = len(cohorts)
+        # fig, axs = plt.subplots(1, num_cohorts, figsize=(10 * num_cohorts, 10), constrained_layout=True)
+        # fig = plt.figure( figsize=(150, 100), layout='compressed')
+        # subfigs = fig.subfigures(1, len(cohorts))
+        # for k, coh_id in enumerate(cohorts):
+        #     # plt.subplot(1, len(cohorts), k+1 )
+        #     # shap.summary_plot(coh.cohorts[coh_id], max_display=max_display, plot_type="layered_violin", title=coh_id)
+        #     # sf = fig.add_subfigure()
+        #     sf:SubFigure =subfigs[k]
+        #     ax = sf.subplots(1, 1)
+        #     # shap.summary_plot(
+        #     shap.plots.violin(
+        #         # shap.plots.beeswarm(
+        #         coh.cohorts[coh_id],
+        #         # color_bar_label=coh_id,
+        #         plot_type="violin",
+        #         # plot_type="layered_violin",
+        #         # ax= axs[k],
+        #         show=False,
+        #         title=coh_id
+        #     )
+        # plt.show()
+        # plt_df = plt_df.T  # .reset_index()
+        # plt.tight_layout()
+        # plt_df.plot(
+        #     kind="barh",
+        #     subplots=True,
+        #     # color= cm.viridis(np.linspace(0, 1, len(plt_df))),
+        #     figsize=(20, 30),
+        #     layout=(int(np.ceil(len(columns) / 2).astype(int)), 2),
+        #     legend=True,
+        #     sharey=True,
+        #     sharex=False,
+        # )
 
     ################ Grouped permutation importance
 
     def plot_grouped_importance(self, X, y):
-
 
         r = grouped_permutation_importance(
             self.model,
@@ -240,22 +290,26 @@ class ForecasterMsExogFeatureImportance:
             n_jobs=-1,
         )
         sorted_idx = r.importances_mean.argsort()[::-1]
-        box = ax[0].boxplot(r.importances[sorted_idx].T,
-                    patch_artist=True,
-                    vert=True, showfliers=False, notch=True,
-                    labels=np.array(columns)[sorted_idx])
+        box = ax[0].boxplot(
+            r.importances[sorted_idx].T,
+            patch_artist=True,
+            vert=True,
+            showfliers=False,
+            notch=True,
+            labels=np.array(columns)[sorted_idx],
+        )
         for patch in box["boxes"]:
             patch.set_facecolor("blue")
-            patch.set_alpha(.5)
-        
-### SHAP on FUll dataset vs on the series
+            patch.set_alpha(0.5)
 
-    def series_shap(self,series_id):
+    ### SHAP on FUll dataset vs on the series
+
+    def series_shap(self, series_id):
         mapping = self.forecaster.forecaster.encoding_mapping_
         id = mapping[series_id]
         print(f"Series id: {series_id} - {id}")
-        x_series = self.X_train[self.X_train["_level_skforecast"] == id ]
-        y_series = self.y_train[self.X_train["_level_skforecast"] == id ]        
+        x_series = self.X_train[self.X_train["_level_skforecast"] == id]
+        y_series = self.y_train[self.X_train["_level_skforecast"] == id]
         shap_values = self.calculate_individual_shap_series(x_series, y_series)
         shap.plots.bar(
             shap_values.abs.mean(0),
@@ -265,11 +319,10 @@ class ForecasterMsExogFeatureImportance:
         plt.show()
         shap.summary_plot(shap_values, x_series, plot_type="violin")
 
-### Scale the shap values
+    ### Scale the shap values
     def scaled_shap(self):
         scalers = self.forecaster.forecaster.transformer_series_
         scalers_exog = self.forecaster.forecaster.transformer_exog
         shap_values = self.calculate_individual_shap_series(self.X_test, self.y_test)
-        
+
         return shap_values
- 

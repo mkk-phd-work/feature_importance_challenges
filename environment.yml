@@ -29,4 +29,5 @@ dependencies:
       - ucimlrepo
       - delayed
       - pyarrow
+      - fasttreeshap
       # - pip install git+https://github.com/lucasplagwitz/grouped_permutation_importance
