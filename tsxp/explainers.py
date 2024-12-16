@@ -39,20 +39,21 @@ class ForecasterMsExogFeatureImportance:
             "TREE_GAIN": self.__calculate_gain_feature_importance(),
             "TREE_SPLIT": self.__calculate_split_feature_importance(),
         }
-        
 
         if isinstance(self.model, LGBMRegressor):
             shap_fun = self.__calculate_fast_tree_shap_importance
+            x = self.X_train
+            y = self.y_train
         else:
             shap_fun = self.__calculate_fast_tree_shap_importance
+            x = self.X_train.sample(1000)
+            y = self.y_train.loc[x.index]
 
         importances_shap = {
-            "TREE_SHAP_TRAIN": shap_fun(self.X_train, self.y_train),
+            # "TREE_SHAP_TRAIN": shap_fun(x, y),
             # "FAST_TREE_SHAP": self.__calculate_fast_tree_shap_importance(self.X_test, self.y_test),
             "TREE_SHAP_TEST": shap_fun(self.X_test, self.y_test),
-            "TREE_PATH_SHAP": shap_fun(
-                self.X_train, self.y_train, perturbation="tree_path_dependent"
-            ),  # tree_path_dependent_shap_values
+            "TREE_PATH_SHAP": shap_fun(x, y, perturbation="tree_path_dependent"),  # tree_path_dependent_shap_values
             # "KERNEL_SHAP": self.__calculate_shap_kernel_importance(self.X_test, self.y_test),  # TODO: Test if works
         }
 
@@ -88,8 +89,8 @@ class ForecasterMsExogFeatureImportance:
 
     def __calculate_shap_tree_importance(self, data_x, data_y, perturbation="interventional"):
         x = (
-            data_x if perturbation != "tree_path_dependent" else None
-        )  #  perturbation="tree_path_dependent" or  interventional(if )
+            data_x if perturbation == "interventional" else None
+        )  #  perturbation="tree_path_dependent" or  interventional(if ) - use data only if interventional
         explainer = shap.TreeExplainer(
             self.model,
             data=x,
@@ -104,11 +105,20 @@ class ForecasterMsExogFeatureImportance:
     def __calculate_fast_tree_shap_importance(self, data_x, data_y, perturbation="interventional"):
         import fasttreeshap
 
-        x = data_x if perturbation != "tree_path_dependent" else None
-        explainer = fasttreeshap.TreeExplainer(self.model, data=x,  feature_perturbation=perturbation)#,algorithm="v1",)
+        print(f"Calculating fast TreeSHAP values with perturbation: {perturbation}")
+        x = data_x if perturbation == "interventional" else None
+        # print("Sample size: ", x.shape)
+        explainer = fasttreeshap.TreeExplainer(
+            self.model,
+            data=x,
+            feature_perturbation=perturbation,
+            algorithm="v2",
+        )
         shap_values_v1 = explainer.shap_values(data_x, data_y, check_additivity=False)
         # print(shap_values_v1)
+
         feature_importances = pd.DataFrame(shap_values_v1, columns=data_x.columns)
+        self.train_shap_values = shap_values_v1
         global_feature_importance = feature_importances.abs().mean().sort_values(ascending=False)
         return pd.DataFrame(global_feature_importance)
 
@@ -122,7 +132,7 @@ class ForecasterMsExogFeatureImportance:
     def __calculate_rank(self):
         ir_order = self.feature_importance.copy()
         for ir in ir_order.columns:
-            ir_order[f"{ir}"] = ir_order[ir].rank(ascending=False).astype(int)
+            ir_order[f"{ir}"] = ir_order[ir].rank(ascending=False).fillna(-1).astype(int) # -1 -means couldn't calculate
 
         ir_order = pd.concat([ir_order], keys=["Rank"], axis=1)
         return ir_order
@@ -147,7 +157,8 @@ class ForecasterMsExogFeatureImportance:
     def __calculate_split_feature_importance(self):  #
         split_imp = None
         if not isinstance(self.model, LGBMRegressor):
-            split_imp = None  # self.model.feature_importances_
+            # not implemented in RandomForest
+            split_imp = [0] * len(self.X_train.columns)
         else:
             split_imp = self.model.booster_.feature_importance(importance_type="split")
         df_imp = pd.DataFrame({"split": split_imp}, index=self.X_train.columns)
