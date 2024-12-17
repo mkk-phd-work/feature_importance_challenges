@@ -42,10 +42,10 @@ def get_default_fold_generator(self, train_size):
 
 class ForecasterMsExog:
 
-    def __init__(self, data: ForecasterMsDataset, regressor=None, scale=False):
+    def __init__(self, data: ForecasterMsDataset, regressor=None, scaler=MinMaxScaler, exog_scaler=MinMaxScaler, scale=True):
         self.data: ForecasterMsDataset = data
         self.model = get_default_regressor() if regressor is None else regressor
-        self.forecaster = self.get_forecaster(scale=scale)
+        self.forecaster = self.get_forecaster(scaler, exog_scaler, scale)
         self.search_space = None
         self.cv = None
 
@@ -67,9 +67,11 @@ class ForecasterMsExog:
         )
         return results
 
-    def get_forecaster(self, scale=True):
-        scaler_s = MinMaxScaler() if scale else None
-        scaler_e = MinMaxScaler() if scale else None
+    def get_forecaster(self, scaler, exog_scaler, scale):
+        scaler_s = scaler if scale else None
+         #MinMaxScaler() if scale else None
+        scaler_e = exog_scaler if scale else None
+        #MinMaxScaler() if scale else None
         forecaster = ForecasterRecursiveMultiSeries(
             regressor=self.model,
             lags=365,

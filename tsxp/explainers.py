@@ -89,7 +89,7 @@ class ForecasterMsExogFeatureImportance:
 
     def __calculate_shap_tree_importance(self, data_x, data_y, perturbation="interventional"):
         x = (
-            data_x if perturbation == "interventional" else None
+            self.X_train if perturbation == "interventional" else None
         )  #  perturbation="tree_path_dependent" or  interventional(if ) - use data only if interventional
         explainer = shap.TreeExplainer(
             self.model,
@@ -97,7 +97,7 @@ class ForecasterMsExogFeatureImportance:
             # random_state=42
         )
         # shap_values = explainer.shap_values(data_x, data_y)
-        shap_values = explainer.shap_values(data_x, data_y, check_additivity=False)
+        shap_values = explainer.shap_values(data_x, data_y)
         feature_importances = pd.DataFrame(shap_values, columns=data_x.columns)
         global_feature_importance = feature_importances.abs().mean().sort_values(ascending=False)
         return pd.DataFrame(global_feature_importance)
@@ -114,7 +114,7 @@ class ForecasterMsExogFeatureImportance:
             feature_perturbation=perturbation,
             algorithm="v2",
         )
-        shap_values_v1 = explainer.shap_values(data_x, data_y, check_additivity=False)
+        shap_values_v1 = explainer.shap_values(data_x, data_y)
         # print(shap_values_v1)
 
         feature_importances = pd.DataFrame(shap_values_v1, columns=data_x.columns)
